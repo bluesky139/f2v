@@ -9,3 +9,10 @@ Use 24bit bitmap to store data, split original file to multi bmp files, then con
 
         e[ncode]: Convert any file to video file.
         d[ecode]: Convert back original file from video file.
+
+
+#### Dependency:
+```
+Pillow>=5.3.0
+ffmpeg-python>=0.1.16
+```
