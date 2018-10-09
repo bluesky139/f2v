@@ -43,12 +43,12 @@ class Encoder(object):
             f.write(self.bmp_header)
             f.write(bytearray(common.BMP_BODY_LEN))
 
-        # Draw f2v mark on top right.
+        # Draw f2v mark on top left.
         image = Image.open(filepath)
         draw = ImageDraw.Draw(image)
         font = ImageFont.truetype("msyh.ttf", 35)
-        draw.rectangle([(common.VIDEO_WIDTH - 70, 0), (common.VIDEO_WIDTH, 40)], fill=(75, 100, 171, 255))
-        draw.text((common.VIDEO_WIDTH - 60, 0), 'f2v', fill=(255, 255, 255, 255), font=font)
+        draw.rectangle([(0, 0), (70, 40)], fill=(75, 100, 171, 255))
+        draw.text((10, 0), 'f2v', fill=(255, 255, 255, 255), font=font)
 
         # Draw title.
         lines = textwrap.wrap(self.input_filename, width=17)
