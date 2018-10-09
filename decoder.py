@@ -16,6 +16,7 @@ class Decoder(object):
         common.create_tmp_dir()
         self.avi_to_bmp()
         self.assemble_file()
+        common.delete_tmp_dir()
 
     def avi_to_bmp(self):
         print('Avi to bmp...')

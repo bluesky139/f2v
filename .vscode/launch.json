@@ -11,7 +11,7 @@
             "request": "launch",
             "debugStdLib": true,
             "program": "${workspaceFolder}/f2v.py",
-            "args": ["d", "TGSDK.appstore.unity.1.8.1.unitypackage.avi"]
+            //"args": ["d", "en.iso.avi"]
         },
         {
             "name": "Python: Attach",

@@ -24,6 +24,7 @@ class Encoder(object):
         self.generate_main_frames()
         self.generate_1st_frame()
         self.bmp_to_avi()
+        common.delete_tmp_dir()
 
     def prepare(self):
         with open('bmp_header_{0}p'.format(common.VIDEO_HEIGHT), 'rb') as f:
