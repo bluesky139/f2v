@@ -87,8 +87,8 @@ class Encoder(object):
         image = Image.open(filepath)
         draw = ImageDraw.Draw(image)
         font = ImageFont.truetype("msyh.ttf", 35)
-        draw.rectangle([(0, 0), (70, 40)], fill=(75, 100, 171, 255))
-        draw.text((10, 0), 'f2v', fill=(255, 255, 255, 255), font=font)
+        draw.rectangle([(0, 0), (140, 45)], fill=(75, 100, 171, 255))
+        draw.text((10, 0), 'f2v (v{0})'.format(int.from_bytes(common.CODE_VERSION, byteorder='little')), fill=(255, 255, 255, 255), font=font)
 
         # Draw title.
         lines = textwrap.wrap(self.input_filename, width=17)
