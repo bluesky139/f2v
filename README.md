@@ -14,5 +14,4 @@ Use 24bit bitmap to store data, split original file to multi bmp files, then con
 #### Dependency:
 ```
 Pillow>=5.3.0
-ffmpeg-python>=0.1.16
 ```
