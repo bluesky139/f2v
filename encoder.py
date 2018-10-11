@@ -10,6 +10,7 @@ class Encoder(object):
     def __init__(self, filepath):
         self.input_filepath = filepath
         self.crc = 0
+        self.frame_count = math.ceil(os.path.getsize(self.input_filepath) / common.BMP_BODY_LEN) + 1
 
     @property
     def input_filename(self):
@@ -47,26 +48,23 @@ class Encoder(object):
 
         # 'LIST' '(size)' 'movi'
         self.f_output.write(b'LIST')
-        list_len = math.ceil(os.path.getsize(self.input_filepath) / common.BMP_BODY_LEN) * (common.BMP_BODY_LEN + 8) + 4
-        print('Avi movi list len:', list_len)
-        self.f_output.write(list_len.to_bytes(4, byteorder='little'))
+        chunks_len = min(self.frame_count, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
+        print('1st chunks len:', chunks_len)
+        self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
         self.f_output.write(b'movi')
 
     def correct_avi_header(self):
         # Avi file size.
-        self.f_output.seek(0, io.SEEK_END)
-        avi_len = self.f_output.tell() - 8
-        print('Avi len:', avi_len)
+        chunks_len = min(self.frame_count, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
         self.f_output.seek(4)
-        self.f_output.write(avi_len.to_bytes(4, byteorder='little'))
+        self.f_output.write((chunks_len + 12 + os.path.getsize('avi_header') - 8).to_bytes(4, byteorder='little'))
 
         # Frame count.
         self.f_output.seek(48)
-        frame_count = math.ceil(os.path.getsize(self.input_filepath) / common.BMP_BODY_LEN) + 1
-        print('Frame count:', frame_count)
-        self.f_output.write(frame_count.to_bytes(4, byteorder='little'))
+        print('Frame count:', self.frame_count)
+        self.f_output.write(self.frame_count.to_bytes(4, byteorder='little'))
         self.f_output.seek(140)
-        self.f_output.write(frame_count.to_bytes(4, byteorder='little'))
+        self.f_output.write(self.frame_count.to_bytes(4, byteorder='little'))
 
         # 'idx1' is dropped.
 
@@ -130,12 +128,25 @@ class Encoder(object):
         self.f_output.write(self.crc.to_bytes(4, byteorder='little')) # CRC
 
     def generate_main_frames(self):
-        i = 2
+        i = 1
+        j = 2
         with open(self.input_filepath, 'rb') as f:
             while True:
                 chunk = f.read(common.BMP_BODY_LEN)
                 if chunk:
-                    print('Generating', i, 'frame.')
+                    if j > common.CONTINUES_FRAME_COUNT:
+                        self.f_output.write(b'RIFF')
+                        chunks_len = min(self.frame_count - i * common.CONTINUES_FRAME_COUNT, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
+                        print('Next chunks len:', chunks_len)
+                        self.f_output.write((chunks_len + 16).to_bytes(4, byteorder='little'))
+                        self.f_output.write(b'AVIX')
+                        self.f_output.write(b'LIST')
+                        self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
+                        self.f_output.write(b'movi')
+                        j = 1
+                        i = i + 1
+
+                    print('Generating [{0}] {1} frame.'.format(i, j))
                     self.crc = binascii.crc32(chunk, self.crc)
                     if len(chunk) != common.BMP_BODY_LEN:
                         chunk = bytearray(chunk)
@@ -144,7 +155,7 @@ class Encoder(object):
                     self.f_output.write(b'00dc')
                     self.f_output.write(common.BMP_BODY_LEN.to_bytes(4, byteorder='little'))
                     self.f_output.write(chunk)
-                    i = i + 1
+                    j = j + 1
                 else:
                     break
 

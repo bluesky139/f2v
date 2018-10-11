@@ -47,12 +47,18 @@ class Decoder(object):
         print('Expect CRC:', expected_crc)
         f.seek(common.BMP_BODY_LEN - 10, io.SEEK_CUR)
 
-        i = 2
+        i = 1
+        j = 2
         read = 0
         crc = 0
         with open(self.output_filepath_tmp, 'wb') as fw:
             while read < output_filesize:
-                print('Reading', i, 'frame.')
+                if j > common.CONTINUES_FRAME_COUNT:
+                    f.seek(24, io.SEEK_CUR)
+                    j = 1
+                    i = i + 1
+
+                print('Reading [{0}] {1} frame.'.format(i, j))
                 f.seek(8, io.SEEK_CUR)
                 to_read = common.BMP_BODY_LEN if output_filesize - read >= common.BMP_BODY_LEN else output_filesize - read
                 chunk = f.read(to_read)
@@ -60,7 +66,7 @@ class Decoder(object):
                 fw.write(chunk)
                 
                 read = read + to_read
-                i = i + 1
+                j = j + 1
 
         if crc != expected_crc:
             raise Exception('CRC not match, calculated crc {0}, expected crc {1}.', crc, expected_crc)

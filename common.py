@@ -14,5 +14,6 @@ def delete_tmp_dir():
 VIDEO_WIDTH = 640
 VIDEO_HEIGHT = 360
 BMP_BODY_LEN = VIDEO_WIDTH * VIDEO_HEIGHT * 3
+CONTINUES_FRAME_COUNT = 1553  # Will use the extended 'AVIX' if frame lager than this.
 
 CODE_VERSION = b'\x02'
