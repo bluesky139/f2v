@@ -1,16 +1,17 @@
 import os
 import io
 import math
+import json
 import binascii
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
 import common
+from file_reader import *
 
 class Encoder(object):
     def __init__(self, filepath):
         self.input_filepath = filepath
         self.crc = 0
-        self.frame_count = math.ceil(os.path.getsize(self.input_filepath) / common.BMP_BODY_LEN) + 1
 
     @property
     def input_filename(self):
@@ -32,13 +33,19 @@ class Encoder(object):
         self.add_original_file_info_to_1st_frame()
         self.correct_avi_header()
         self.end()
-        common.delete_tmp_dir()
+        #common.delete_tmp_dir()
 
     def prepare(self):
         if os.path.exists(self.output_filepath_tmp):
             os.remove(self.output_filepath_tmp)
         if os.path.exists(self.output_filepath):
             os.remove(self.output_filepath)
+        
+        if os.path.isdir(self.input_filepath):
+            self.f_input = OriginalFolderReader(self.input_filepath)
+        else:
+            self.f_input = OriginalFileReader(self.input_filepath)
+        self.frame_count = math.ceil(self.f_input.total_size / common.BMP_BODY_LEN) + 1
         self.f_output = open(self.output_filepath_tmp, 'wb+')
 
         # Read whole avi header (without 'LIST movi') to output, we'll change frame count and file size later.
@@ -116,9 +123,13 @@ class Encoder(object):
     def add_original_file_info_to_1st_frame(self):
         # Add file info.
         self.f_output.seek(os.path.getsize('avi_header') + 20)
+        self.f_output.write(b'f2v') # f2v mark
         self.f_output.write(common.CODE_VERSION) # Version.
+
+        info_size_pos = self.f_output.tell()
+        self.f_output.seek(4, io.SEEK_CUR)
         
-        input_filesize = os.path.getsize(self.input_filepath)
+        input_filesize = self.f_input.total_size
         print('Input file size:', input_filesize)
         if input_filesize > 1024 * 1024 * 1024 * 10:
             raise Exception('Input file size too big.')
@@ -127,37 +138,50 @@ class Encoder(object):
         print('CRC:', self.crc)
         self.f_output.write(self.crc.to_bytes(4, byteorder='little')) # CRC
 
+        is_dir = os.path.isdir(self.input_filepath)
+        print('Is dir:', is_dir)
+        self.f_output.write(b'\x01' if is_dir else b'\x00')
+
+        if is_dir:
+            j_file_list = json.dumps(self.f_input.file_list)
+            print('File list len:', len(self.f_input.file_list))
+            self.f_output.write(j_file_list.encode())
+
+        info_size = self.f_output.tell() - info_size_pos - 4
+        print('Info size:', info_size)
+        self.f_output.seek(info_size_pos)
+        self.f_output.write(info_size.to_bytes(4, byteorder='little'))
+
     def generate_main_frames(self):
         i = 1
         j = 2
-        with open(self.input_filepath, 'rb') as f:
-            while True:
-                chunk = f.read(common.BMP_BODY_LEN)
-                if chunk:
-                    if j > common.CONTINUES_FRAME_COUNT:
-                        self.f_output.write(b'RIFF')
-                        chunks_len = min(self.frame_count - i * common.CONTINUES_FRAME_COUNT, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
-                        print('Next chunks len:', chunks_len)
-                        self.f_output.write((chunks_len + 16).to_bytes(4, byteorder='little'))
-                        self.f_output.write(b'AVIX')
-                        self.f_output.write(b'LIST')
-                        self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
-                        self.f_output.write(b'movi')
-                        j = 1
-                        i = i + 1
+        while True:
+            chunk = self.f_input.read(common.BMP_BODY_LEN)
+            if chunk:
+                if j > common.CONTINUES_FRAME_COUNT:
+                    self.f_output.write(b'RIFF')
+                    chunks_len = min(self.frame_count - i * common.CONTINUES_FRAME_COUNT, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
+                    print('Next chunks len:', chunks_len)
+                    self.f_output.write((chunks_len + 16).to_bytes(4, byteorder='little'))
+                    self.f_output.write(b'AVIX')
+                    self.f_output.write(b'LIST')
+                    self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
+                    self.f_output.write(b'movi')
+                    j = 1
+                    i = i + 1
 
-                    print('Generating [{0}] {1} frame.'.format(i, j))
-                    self.crc = binascii.crc32(chunk, self.crc)
-                    if len(chunk) != common.BMP_BODY_LEN:
-                        chunk = bytearray(chunk)
-                        chunk.extend(bytearray(common.BMP_BODY_LEN - len(chunk)))
+                print('Generating [{0}] {1} frame.'.format(i, j))
+                self.crc = binascii.crc32(chunk, self.crc)
+                if len(chunk) != common.BMP_BODY_LEN:
+                    chunk = bytearray(chunk)
+                    chunk.extend(bytearray(common.BMP_BODY_LEN - len(chunk)))
 
-                    self.f_output.write(b'00dc')
-                    self.f_output.write(common.BMP_BODY_LEN.to_bytes(4, byteorder='little'))
-                    self.f_output.write(chunk)
-                    j = j + 1
-                else:
-                    break
+                self.f_output.write(b'00dc')
+                self.f_output.write(common.BMP_BODY_LEN.to_bytes(4, byteorder='little'))
+                self.f_output.write(chunk)
+                j = j + 1
+            else:
+                break
 
     def end(self):
         self.f_output.close()
