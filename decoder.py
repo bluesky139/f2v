@@ -3,7 +3,7 @@ import io
 import json
 import shutil
 import binascii
-import common
+from common import *
 from file_writer import *
 
 class Decoder(object):
@@ -21,10 +21,10 @@ class Decoder(object):
         return self.output_filepath + '.tmp'
 
     def decode(self):
-        common.create_tmp_dir()
+        create_tmp_dir()
         self.assemble_file()
         self.end()
-        common.delete_tmp_dir()
+        delete_tmp_dir()
 
     def assemble_file(self):
         print('Assemble file...')
@@ -68,7 +68,7 @@ class Decoder(object):
             file_list = json.loads(j_file_list)
             print('File list len:', len(file_list))
 
-        f.seek(common.BMP_BODY_LEN - 8 - info_size, io.SEEK_CUR)
+        f.seek(BMP_BODY_LEN - 8 - info_size, io.SEEK_CUR)
         i = 1
         j = 2
         read = 0
@@ -81,14 +81,14 @@ class Decoder(object):
             fw = OriginalFileWriter(self.output_filepath)
 
         while read < output_filesize:
-            if j > common.CONTINUES_FRAME_COUNT:
+            if j > CONTINUES_FRAME_COUNT:
                 f.seek(24, io.SEEK_CUR)
                 j = 1
                 i = i + 1
 
             print('Reading [{0}] {1} frame.'.format(i, j))
             f.seek(8, io.SEEK_CUR)
-            to_read = common.BMP_BODY_LEN if output_filesize - read >= common.BMP_BODY_LEN else output_filesize - read
+            to_read = BMP_BODY_LEN if output_filesize - read >= BMP_BODY_LEN else output_filesize - read
             chunk = f.read(to_read)
             crc = binascii.crc32(chunk, crc)
             fw.write(chunk)

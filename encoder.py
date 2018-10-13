@@ -5,7 +5,7 @@ import json
 import binascii
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
-import common
+from common import *
 from file_reader import *
 
 class Encoder(object):
@@ -26,14 +26,14 @@ class Encoder(object):
         return self.output_filepath + '.tmp'
 
     def encode(self):
-        common.create_tmp_dir()
+        create_tmp_dir()
         self.prepare()
         self.generate_1st_frame()
         self.generate_main_frames()
         self.add_original_file_info_to_1st_frame()
         self.correct_avi_header()
         self.end()
-        #common.delete_tmp_dir()
+        delete_tmp_dir()
 
     def prepare(self):
         if os.path.exists(self.output_filepath_tmp):
@@ -45,7 +45,7 @@ class Encoder(object):
             self.f_input = OriginalFolderReader(self.input_filepath)
         else:
             self.f_input = OriginalFileReader(self.input_filepath)
-        self.frame_count = math.ceil(self.f_input.total_size / common.BMP_BODY_LEN) + 1
+        self.frame_count = math.ceil(self.f_input.total_size / BMP_BODY_LEN) + 1
         self.f_output = open(self.output_filepath_tmp, 'wb+')
 
         # Read whole avi header (without 'LIST movi') to output, we'll change frame count and file size later.
@@ -55,14 +55,14 @@ class Encoder(object):
 
         # 'LIST' '(size)' 'movi'
         self.f_output.write(b'LIST')
-        chunks_len = min(self.frame_count, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
+        chunks_len = min(self.frame_count, CONTINUES_FRAME_COUNT) * (BMP_BODY_LEN + 8)
         print('1st chunks len:', chunks_len)
         self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
         self.f_output.write(b'movi')
 
     def correct_avi_header(self):
         # Avi file size.
-        chunks_len = min(self.frame_count, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
+        chunks_len = min(self.frame_count, CONTINUES_FRAME_COUNT) * (BMP_BODY_LEN + 8)
         self.f_output.seek(4)
         self.f_output.write((chunks_len + 12 + os.path.getsize('avi_header') - 8).to_bytes(4, byteorder='little'))
 
@@ -78,22 +78,22 @@ class Encoder(object):
     # First frame is for original file info and title thumbnail
     def generate_1st_frame(self):
         filename = 'img00001.bmp'
-        filepath = common.TMP_DIR + '/' + filename
+        filepath = TMP_DIR + '/' + filename
         print('Generating', filename)
 
         # Create empty bmp.
-        with open('bmp_header_{0}p'.format(common.VIDEO_HEIGHT), 'rb') as f:
+        with open('bmp_header_{0}p'.format(VIDEO_HEIGHT), 'rb') as f:
             bmp_header = f.read(54)
         with open(filepath, 'wb') as f:
             f.write(bmp_header)
-            f.write(bytearray(common.BMP_BODY_LEN))
+            f.write(bytearray(BMP_BODY_LEN))
 
         # Draw f2v mark on top left.
         image = Image.open(filepath)
         draw = ImageDraw.Draw(image)
         font = ImageFont.truetype("msyh.ttf", 35)
         draw.rectangle([(0, 0), (140, 45)], fill=(75, 100, 171, 255))
-        draw.text((10, 0), 'f2v (v{0})'.format(int.from_bytes(common.CODE_VERSION, byteorder='little')), fill=(255, 255, 255, 255), font=font)
+        draw.text((10, 0), 'f2v (v{0})'.format(int.from_bytes(CODE_VERSION, byteorder='little')), fill=(255, 255, 255, 255), font=font)
 
         # Draw title.
         lines = textwrap.wrap(self.input_filename, width=17)
@@ -112,19 +112,19 @@ class Encoder(object):
 
             frame = bytearray()
             while old_frame: # bmp is up side down
-                line = old_frame[-common.VIDEO_WIDTH * 3:]
+                line = old_frame[-VIDEO_WIDTH * 3:]
                 frame.extend(line)
-                old_frame = old_frame[:-common.VIDEO_WIDTH * 3]
+                old_frame = old_frame[:-VIDEO_WIDTH * 3]
 
             self.f_output.write(b'00dc')
-            self.f_output.write(common.BMP_BODY_LEN.to_bytes(4, byteorder='little'))
+            self.f_output.write(BMP_BODY_LEN.to_bytes(4, byteorder='little'))
             self.f_output.write(frame)
             
     def add_original_file_info_to_1st_frame(self):
         # Add file info.
         self.f_output.seek(os.path.getsize('avi_header') + 20)
         self.f_output.write(b'f2v') # f2v mark
-        self.f_output.write(common.CODE_VERSION) # Version.
+        self.f_output.write(CODE_VERSION) # Version.
 
         info_size_pos = self.f_output.tell()
         self.f_output.seek(4, io.SEEK_CUR)
@@ -156,11 +156,11 @@ class Encoder(object):
         i = 1
         j = 2
         while True:
-            chunk = self.f_input.read(common.BMP_BODY_LEN)
+            chunk = self.f_input.read(BMP_BODY_LEN)
             if chunk:
-                if j > common.CONTINUES_FRAME_COUNT:
+                if j > CONTINUES_FRAME_COUNT:
                     self.f_output.write(b'RIFF')
-                    chunks_len = min(self.frame_count - i * common.CONTINUES_FRAME_COUNT, common.CONTINUES_FRAME_COUNT) * (common.BMP_BODY_LEN + 8)
+                    chunks_len = min(self.frame_count - i * CONTINUES_FRAME_COUNT, CONTINUES_FRAME_COUNT) * (BMP_BODY_LEN + 8)
                     print('Next chunks len:', chunks_len)
                     self.f_output.write((chunks_len + 16).to_bytes(4, byteorder='little'))
                     self.f_output.write(b'AVIX')
@@ -172,12 +172,12 @@ class Encoder(object):
 
                 print('Generating [{0}] {1} frame.'.format(i, j))
                 self.crc = binascii.crc32(chunk, self.crc)
-                if len(chunk) != common.BMP_BODY_LEN:
+                if len(chunk) != BMP_BODY_LEN:
                     chunk = bytearray(chunk)
-                    chunk.extend(bytearray(common.BMP_BODY_LEN - len(chunk)))
+                    chunk.extend(bytearray(BMP_BODY_LEN - len(chunk)))
 
                 self.f_output.write(b'00dc')
-                self.f_output.write(common.BMP_BODY_LEN.to_bytes(4, byteorder='little'))
+                self.f_output.write(BMP_BODY_LEN.to_bytes(4, byteorder='little'))
                 self.f_output.write(chunk)
                 j = j + 1
             else:
