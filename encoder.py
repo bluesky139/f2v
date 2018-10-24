@@ -2,6 +2,9 @@ import os
 import io
 import math
 import json
+import time
+import numpy
+import struct
 import binascii
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
@@ -19,7 +22,7 @@ class Encoder(object):
 
     @property
     def output_filepath(self):
-        return self.input_filepath + '.avi'
+        return self.input_filepath + '.mkv'
 
     @property
     def output_filepath_tmp(self):
@@ -31,7 +34,7 @@ class Encoder(object):
         self.generate_1st_frame()
         self.generate_main_frames()
         self.add_original_file_info_to_1st_frame()
-        self.correct_avi_header()
+        self.correct_mkv_header()
         self.end()
         delete_tmp_dir()
 
@@ -48,32 +51,49 @@ class Encoder(object):
         self.frame_count = math.ceil(self.f_input.total_size / BMP_BODY_LEN) + 1
         self.f_output = open(self.output_filepath_tmp, 'wb+')
 
-        # Read whole avi header (without 'LIST movi') to output, we'll change frame count and file size later.
-        with open('avi_header', 'rb') as f:
-            avi_header = f.read()
-            self.f_output.write(avi_header)
+        # Read whole mkv header (EBML head and Segment(Seek head, Segment information and Tracks)) to output, we'll change duration, date, etc later.
+        with open('mkv_header', 'rb') as f:
+            mkv_header = f.read()
+            self.f_output.write(mkv_header)
 
-        # 'LIST' '(size)' 'movi'
-        self.f_output.write(b'LIST')
-        chunks_len = min(self.frame_count, CONTINUES_FRAME_COUNT) * (BMP_BODY_LEN + 8)
-        print('1st chunks len:', chunks_len)
-        self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
-        self.f_output.write(b'movi')
+    def correct_mkv_header(self):
+        # Segment size
+        self.f_output.seek(0, io.SEEK_END)
+        size = self.f_output.tell() - 0x2C - 8
+        print('Segment size:', size)
+        self.f_output.seek(0x2C, io.SEEK_SET)
+        self.f_output.write((size | 0x100000000000000).to_bytes(8, byteorder='big'))
 
-    def correct_avi_header(self):
-        # Avi file size.
-        chunks_len = min(self.frame_count, CONTINUES_FRAME_COUNT) * (BMP_BODY_LEN + 8)
-        self.f_output.seek(4)
-        self.f_output.write((chunks_len + 12 + os.path.getsize('avi_header') - 8).to_bytes(4, byteorder='little'))
+        # Segment information
+        # Duration
+        self.f_output.seek(0xB4, io.SEEK_SET)
+        duration = float(40 * self.frame_count)
+        print('Duration:', duration)
+        self.f_output.write(struct.pack('>f', duration))
 
-        # Frame count.
-        self.f_output.seek(48)
-        print('Frame count:', self.frame_count)
-        self.f_output.write(self.frame_count.to_bytes(4, byteorder='little'))
-        self.f_output.seek(140)
-        self.f_output.write(self.frame_count.to_bytes(4, byteorder='little'))
+        # DateUTC
+        self.f_output.seek(3, io.SEEK_CUR)
+        t = (int(time.time()) - 978307200) * 1000000000  # 978307200 is 2001/01/01 00:00:00 UTC
+        self.f_output.write(t.to_bytes(8, byteorder='big'))
 
-        # 'idx1' is dropped.
+        # SegmentUID
+        self.f_output.seek(3, io.SEEK_CUR)
+        self.f_output.write(numpy.random.bytes(16))
+
+        # Track
+        # TrackUID
+        self.f_output.seek(0xE3, io.SEEK_SET)
+        self.f_output.write(numpy.random.bytes(8))
+
+    def new_cluster(self, frame_pos):
+        self.f_output.write(b'\x1F\x43\xB6\x75') # ID "Cluster"
+        self.f_output.write(b'\x2A\x8C\x0D') # Cluster size, 640 * 360 * 3 + 13
+        self.f_output.write(b'\xE7') # ID "Timecode"
+        self.f_output.write(b'\x83') # Timecode size
+        self.f_output.write((frame_pos * 40).to_bytes(3, byteorder='big')) # Timecode
+        self.f_output.write(b'\xA3') # ID "SimpleBlock"
+        self.f_output.write(b'\x2A\x8C\x04') # SimpleBlock size
+        self.f_output.write(b'\x81\x00\x00\x00') # SimpleBlock header
 
     # First frame is for original file info and title thumbnail
     def generate_1st_frame(self):
@@ -93,7 +113,7 @@ class Encoder(object):
         draw = ImageDraw.Draw(image)
         font = ImageFont.truetype("msyh.ttf", 35)
         draw.rectangle([(0, 0), (140, 45)], fill=(75, 100, 171, 255))
-        draw.text((10, 0), 'f2v (v{0})'.format(int.from_bytes(CODE_VERSION, byteorder='little')), fill=(255, 255, 255, 255), font=font)
+        draw.text((10, 0), 'f2v (v{0})'.format(int.from_bytes(CODE_VERSION, byteorder='big')), fill=(255, 255, 255, 255), font=font)
 
         # Draw title.
         lines = textwrap.wrap(self.input_filename, width=17)
@@ -116,13 +136,12 @@ class Encoder(object):
                 frame.extend(line)
                 old_frame = old_frame[:-VIDEO_WIDTH * 3]
 
-            self.f_output.write(b'00dc')
-            self.f_output.write(BMP_BODY_LEN.to_bytes(4, byteorder='little'))
+            self.new_cluster(0)
             self.f_output.write(frame)
             
     def add_original_file_info_to_1st_frame(self):
         # Add file info.
-        self.f_output.seek(os.path.getsize('avi_header') + 20)
+        self.f_output.seek(os.path.getsize('mkv_header') + 20)
         self.f_output.write(b'f2v') # f2v mark
         self.f_output.write(CODE_VERSION) # Version.
 
@@ -133,10 +152,10 @@ class Encoder(object):
         print('Input file size:', input_filesize)
         if input_filesize > 1024 * 1024 * 1024 * 10:
             raise Exception('Input file size too big.')
-        self.f_output.write(input_filesize.to_bytes(5, byteorder='little')) # File size.
+        self.f_output.write(input_filesize.to_bytes(5, byteorder='big')) # File size.
 
         print('CRC:', self.crc)
-        self.f_output.write(self.crc.to_bytes(4, byteorder='little')) # CRC
+        self.f_output.write(self.crc.to_bytes(4, byteorder='big')) # CRC
 
         is_dir = os.path.isdir(self.input_filepath)
         print('Is dir:', is_dir)
@@ -150,36 +169,22 @@ class Encoder(object):
         info_size = self.f_output.tell() - info_size_pos - 4
         print('Info size:', info_size)
         self.f_output.seek(info_size_pos)
-        self.f_output.write(info_size.to_bytes(4, byteorder='little'))
+        self.f_output.write(info_size.to_bytes(4, byteorder='big'))
 
     def generate_main_frames(self):
         i = 1
-        j = 2
         while True:
             chunk = self.f_input.read(BMP_BODY_LEN)
             if chunk:
-                if j > CONTINUES_FRAME_COUNT:
-                    self.f_output.write(b'RIFF')
-                    chunks_len = min(self.frame_count - i * CONTINUES_FRAME_COUNT, CONTINUES_FRAME_COUNT) * (BMP_BODY_LEN + 8)
-                    print('Next chunks len:', chunks_len)
-                    self.f_output.write((chunks_len + 16).to_bytes(4, byteorder='little'))
-                    self.f_output.write(b'AVIX')
-                    self.f_output.write(b'LIST')
-                    self.f_output.write((chunks_len + 4).to_bytes(4, byteorder='little'))
-                    self.f_output.write(b'movi')
-                    j = 1
-                    i = i + 1
-
-                print('Generating [{0}] {1} frame.'.format(i, j))
+                print('Generating {0} frame.'.format(i))
                 self.crc = binascii.crc32(chunk, self.crc)
                 if len(chunk) != BMP_BODY_LEN:
                     chunk = bytearray(chunk)
                     chunk.extend(bytearray(BMP_BODY_LEN - len(chunk)))
 
-                self.f_output.write(b'00dc')
-                self.f_output.write(BMP_BODY_LEN.to_bytes(4, byteorder='little'))
+                self.new_cluster(i)
                 self.f_output.write(chunk)
-                j = j + 1
+                i = i + 1
             else:
                 break
 

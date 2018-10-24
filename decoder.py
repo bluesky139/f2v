@@ -8,8 +8,8 @@ from file_writer import *
 
 class Decoder(object):
     def __init__(self, filepath):
-        if not filepath.endswith('.avi'):
-            raise Exception('Expect input file name ends with .avi')
+        if not filepath.endswith('.mkv'):
+            raise Exception('Expect input file name ends with .mkv')
         self.input_filepath = filepath
 
     @property
@@ -40,28 +40,28 @@ class Decoder(object):
                 os.remove(self.output_filepath)
 
         with open(self.input_filepath, 'rb') as f:
-            f.seek(os.path.getsize('avi_header') + 20)
+            f.seek(os.path.getsize('mkv_header') + 20)
             if b'f2v' != f.read(3):
-                raise Exception('Not a f2v avi file.')
+                raise Exception('Not a f2v mkv file.')
 
             version = f.read(1)
-            if version == b'\x01':
-                raise Exception('v1 is deprecated.')
-            elif version == b'\x02':
-                self.assemble_file_v2(f)
+            if version == b'\x01' or version == b'\x02':
+                raise Exception('v1 and v2 are deprecated.')
+            elif version == b'\x03':
+                self.assemble_file_v3(f)
             else:
                 raise Exception('Not implemented version ' + version)
 
-    def assemble_file_v2(self, f):
-        info_size = int.from_bytes(f.read(4), byteorder='little')
+    def assemble_file_v3(self, f):
+        info_size = int.from_bytes(f.read(4), byteorder='big')
         print('Info size:', info_size)
 
-        output_filesize = int.from_bytes(f.read(5), byteorder='little')
+        output_filesize = int.from_bytes(f.read(5), byteorder='big')
         print('Output file size:', output_filesize)
-        expected_crc = int.from_bytes(f.read(4), byteorder='little')
+        expected_crc = int.from_bytes(f.read(4), byteorder='big')
         print('Expect CRC:', expected_crc)
 
-        is_dir = int.from_bytes(f.read(1), byteorder='little')
+        is_dir = int.from_bytes(f.read(1), byteorder='big')
         print('Is dir:', is_dir)
         if is_dir:
             j_file_list = f.read(info_size - 10).decode()
@@ -70,7 +70,6 @@ class Decoder(object):
 
         f.seek(BMP_BODY_LEN - 8 - info_size, io.SEEK_CUR)
         i = 1
-        j = 2
         read = 0
         crc = 0
 
@@ -81,20 +80,15 @@ class Decoder(object):
             fw = OriginalFileWriter(self.output_filepath)
 
         while read < output_filesize:
-            if j > CONTINUES_FRAME_COUNT:
-                f.seek(24, io.SEEK_CUR)
-                j = 1
-                i = i + 1
-
-            print('Reading [{0}] {1} frame.'.format(i, j))
-            f.seek(8, io.SEEK_CUR)
+            print('Reading {0} frame.'.format(i))
+            f.seek(20, io.SEEK_CUR)
             to_read = BMP_BODY_LEN if output_filesize - read >= BMP_BODY_LEN else output_filesize - read
             chunk = f.read(to_read)
             crc = binascii.crc32(chunk, crc)
             fw.write(chunk)
             
             read = read + to_read
-            j = j + 1
+            i = i + 1
 
         if crc != expected_crc:
             raise Exception('CRC not match, calculated crc {0}, expected crc {1}.', crc, expected_crc)
