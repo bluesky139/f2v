@@ -111,13 +111,13 @@ class Encoder(object):
         # Draw f2v mark on top left.
         image = Image.open(filepath)
         draw = ImageDraw.Draw(image)
-        font = ImageFont.truetype("msyh.ttf", 35)
-        draw.rectangle([(0, 0), (140, 45)], fill=(75, 100, 171, 255))
-        draw.text((10, 0), 'f2v (v{0})'.format(int.from_bytes(CODE_VERSION, byteorder='big')), fill=(255, 255, 255, 255), font=font)
+        font = ImageFont.truetype("msyh.ttf", 25)
+        draw.rectangle([(0, 140), (110, 175)], fill=(75, 100, 171, 255))
+        draw.text((10, 140), 'f2v (v{0})'.format(int.from_bytes(CODE_VERSION, byteorder='big')), fill=(255, 255, 255, 255), font=font)
 
         # Draw title.
-        lines = textwrap.wrap(self.input_filename, width=17)
-        y = 50
+        lines = textwrap.wrap(self.input_filename, width=24)
+        y = 180
         for line in lines:
             width, height = font.getsize(line)
             draw.text((10, y), line, fill=(255, 255, 255, 255), font=font)
@@ -170,6 +170,11 @@ class Encoder(object):
         print('Info size:', info_size)
         self.f_output.seek(info_size_pos)
         self.f_output.write(info_size.to_bytes(4, byteorder='big'))
+
+        if info_size + 8 > BMP_BODY_LEN:
+            raise Exception('Info size too large.')
+        if info_size > BMP_BODY_LEN / 2:
+            print('[Warn] File info may overlap readable text on 1st frame.')
 
     def generate_main_frames(self):
         i = 1
